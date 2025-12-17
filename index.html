@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <style>
+        body {
+            font-family: system-ui;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 16px;
+            margin-top: 20px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 12px;
+            box-shadow: 0 4px 10px rgba(0,0,0,.1);
+            text-align: center;
+        }
+
+        .card img {
+            width: 160px;
+            height: 160px;
+            object-fit: contain;
+        }
+
+        .types span {
+            display: inline-block;
+            margin: 4px;
+            padding: 4px 8px;
+            border-radius: 999px;
+            background: #ddd;
+            font-size: 12px;
+        }
+
+        .stats {
+            font-size: 12px;
+            text-align: left;
+            margin-top: 8px;
+        }
+    </style>
+
+    <meta charset="UTF-8">
+    <title>Pokemon Explorer</title>
+</head>
+<body>
+<button id="random">สุ่ม Pokémon</button>
+<div id="output"></div>
+
+<script>
+    // === Pokemon Explorer - Complete Implementation ===
+
+    class PokemonExplorer {
+        constructor() {
+            this.baseUrl = 'https://pokeapi.co/api/v2/pokemon';
+            this.abortController = null;
+        }
+
+        // ยกเลิก request ก่อนหน้า
+        cancelPendingRequest() {
+            if (this.abortController) {
+                this.abortController.abort();
+            }
+            this.abortController = new AbortController();
+        }
+
+        // ดึงข้อมูล Pokemon ตัวเดียว
+        async fetchPokemon(nameOrId) {
+            if (!this.abortController) {
+                this.abortController = new AbortController();
+            }
+
+            try {
+                const response = await fetch(
+                    `${this.baseUrl}/${String(nameOrId).toLowerCase()}`,
+                    { signal: this.abortController.signal }
+                );
+
+                if (!response.ok) {
+                    throw new Error(
+                        response.status === 404
+                            ? 'Pokemon not found'
+                            : `HTTP ${response.status}`
+                    );
+                }
+
+                return this.transformPokemon(await response.json());
+            } catch (err) {
+                if (err.name === 'AbortError') return ;
+                throw err;
+            }
+        }
+
+
+        // แปลงข้อมูลให้ใช้ง่าย
+        transformPokemon(raw) {
+            return {
+                id: raw.id,
+                name: raw.name,
+                image: raw.sprites.other['official-artwork'].front_default
+                    || raw.sprites.front_default,
+                types: raw.types.map(t => t.type.name),
+                height: raw.height / 10,  // meters
+                weight: raw.weight / 10,  // kg
+                stats: raw.stats.reduce((acc, s) => {
+                    acc[s.stat.name] = s.base_stat;
+                    return acc;
+                }, {}),
+                base_experience: raw.base_experience
+            };
+        }
+
+        // ดึงหลายตัวพร้อมกัน
+        async fetchMultiple(ids) {
+            this.cancelPendingRequest();
+
+            const results = await Promise.allSettled(
+                ids.map(id => this.fetchPokemon(id))
+            );
+
+            return results
+                .filter(r => r.status === 'fulfilled')
+                .map(r => r.value);
+        }
+
+        // สุ่ม Pokemon
+        async fetchRandom(count = 6) {
+            const ids = Array.from(
+                { length: count },
+                () => Math.floor(Math.random() * 898) + 1
+            );
+            return this.fetchMultiple(ids);
+        }
+    }
+
+</script>
+
+<script>
+    const explorer = new PokemonExplorer();
+    const output = document.getElementById('output');
+
+    document.getElementById('random').onclick = async () => {
+        output.textContent = 'Loading...';
+
+        try {
+            const pokemons = await explorer.fetchRandom(6);
+            output.innerHTML = `
+    <div class="grid">
+        ${pokemons.map(p => `
+            <div class="card">
+                <img src="${p.image}" alt="${p.name}">
+                <h3>${p.name}</h3>
+
+                <div class="types">
+                    ${p.types.map(t => `<span>${t}</span>`).join('')}
+                </div>
+
+                <div class="stats">
+    Height: ${p.height}m | Weight: ${p.weight}kg<br>
+    HP: ${p.stats.hp} |
+    ATK: ${p.stats.attack} |
+    DEF: ${p.stats.defense} <br>
+    Base Exp: ${p.base_experience}<br>
+    </div>
+            </div>
+        `).join('')}
+    </div>
+`;
+
+        } catch (err) {
+            output.textContent = err.message;
+        }
+    };
+</script>
+</body>
+</html>
